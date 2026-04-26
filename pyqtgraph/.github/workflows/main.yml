@@ -1,0 +1,342 @@
+name: main
+
+on:
+  push:
+    branches-ignore: ["dependabot/**"]
+  pull_request:
+    paths-ignore:
+      - "**.md"
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: 1
+
+concurrency:
+  group: ${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+
+  build-wheel:
+    name: build wheel
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+          cache: pip
+      - name: Build Wheel
+        run: |
+          pip install build twine
+          python -m build --wheel
+      - name: Twine Check Wheel
+        run: |
+          twine check "dist/*.whl"
+      - name: Upload Wheel
+        uses: actions/upload-artifact@v5
+        with:
+          name: wheel
+          path: dist/*.whl  
+
+  make_dash_docset:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.x"
+          cache: pip
+      - name: Install Build Dependencies
+        run: |
+          python -m pip install --upgrade doc2dash setuptools -r doc/requirements.txt
+      - name: Build docset
+        run: |
+          make -C doc dash
+          dot_clean -m doc/pyqtgraph.docset
+      - run: tar --exclude='.DS_Store' -cvzf pyqtgraph.tgz doc/pyqtgraph.docset
+      - name: Upload docset
+        uses: actions/upload-artifact@v5
+        with:
+          name: pyqtgraph.docset
+          path: pyqtgraph.tgz
+
+  run-mypy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Install mypy
+        run: pip install mypy
+      - name: Run mypy
+        run: mypy
+  
+  analyze:
+    name: analyze
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 2
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.x"
+          cache: pip
+      - name: Install Dependencies
+        run: |
+          python -m pip install PyQt6 numpy scipy
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: "python"
+          queries: +security-and-quality
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v4
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v4
+
+  tests-pip:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        qt-lib: [pyqt, pyside]
+        python-version: ["3.12", "3.13", "3.14"]
+        include:
+          - python-version: "3.12"
+            qt-lib: "pyqt"
+            qt-version: "PyQt5~=5.15.0"
+          - python-version: "3.12"
+            qt-lib: "pyside"
+            qt-version: "PySide6-Essentials~=6.8.0"
+          - python-version: "3.13"
+            qt-lib: "pyqt"
+            qt-version: "PyQt6~=6.8.0 PyQt6-Qt6~=6.8.0"
+          - python-version: "3.13"
+            qt-lib: "pyside"
+            qt-version: "PySide6-Essentials"
+          - python-version: "3.14"
+            qt-lib: "pyqt"
+            qt-version: "PyQt6"
+          - python-version: "3.14"
+            qt-lib: "pyside"
+            qt-version: "PySide6-Essentials"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Setup Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: "Install Windows-Mesa OpenGL DLL"
+        if: runner.os == 'Windows'
+        run: |
+          curl -L --output mesa.7z --url https://github.com/pal1000/mesa-dist-win/releases/download/24.3.4/mesa3d-24.3.4-release-msvc.7z
+          7z x mesa.7z -o*
+          powershell.exe mesa\systemwidedeploy.cmd 1
+      - name: Install Dependencies
+        run: |
+          python -m pip install -r .github/workflows/etc/requirements.txt ${{ matrix.qt-version }} . "coverage[toml]"
+      - name: "Install Linux VirtualDisplay"
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -y --allow-releaseinfo-change
+          sudo apt-get install --no-install-recommends -y \
+            libxkbcommon-x11-0 \
+            x11-utils \
+            libyaml-dev \
+            libegl1 \
+            libxcb-icccm4 \
+            libxcb-image0 \
+            libxcb-keysyms1 \
+            libxcb-randr0 \
+            libxcb-render-util0 \
+            libxcb-xinerama0 \
+            libopengl0 \
+            libxcb-cursor0
+      - name: "Debug Info"
+        run: |
+          echo python location: `which python`
+          echo python version: `python --version`
+          echo pytest location: `which pytest`
+          echo installed packages
+          python -m pip list
+          echo pyqtgraph system info
+          python -c "import pyqtgraph as pg; pg.systemInfo()"
+        shell: bash
+        env:
+          QT_DEBUG_PLUGINS: 1
+      - name: "XVFB Display Info"
+        run: |
+          xvfb-run --server-args="-screen 0, 1920x1200x24 -ac +extension GLX +render -noreset" python -m pyqtgraph.util.glinfo
+          xvfb-run --server-args="-screen 0, 1920x1200x24 -ac +extension GLX +render -noreset" python -m pyqtgraph.util.get_resolution
+        if: runner.os == 'Linux'
+      - name: "Display Info"
+        run: |
+          python -m pyqtgraph.util.glinfo
+          python -m pyqtgraph.util.get_resolution
+        if: runner.os != 'Linux'
+      - name: Run Tests
+        run: |
+          mkdir "$SCREENSHOT_DIR"
+          coverage run -m pytest tests -v
+          pytest pyqtgraph/examples -v -n 2
+        shell: bash
+      - name: Upload coverage data
+        uses: actions/upload-artifact@v5
+        with:
+          name: coverage-data-${{ matrix.python-version }}-${{ matrix.qt-lib }}-${{ matrix.os }}
+          path: .coverage.*
+          if-no-files-found: ignore
+          include-hidden-files: true
+      - name: Upload Screenshots
+        if: failure()
+        uses: actions/upload-artifact@v5
+        with:
+          name: Screenshots (Python ${{ matrix.python-version }} - Qt-Bindings ${{ matrix.qt-lib }} - OS ${{ matrix.os }})
+          path: ${{ env.SCREENSHOT_DIR }}
+          if-no-files-found: ignore
+    env:
+      SCREENSHOT_DIR: screenshots
+
+  tests-conda:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash -el {0}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        qt-lib: [pyqt, pyside]
+        include:
+          - qt-lib: pyqt
+            environment-file: .github/workflows/etc/environment-pyqt.yml
+          - qt-lib: pyside
+            environment-file: .github/workflows/etc/environment-pyside.yml
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - uses: conda-incubator/setup-miniconda@v3
+        with:
+          miniforge-version: latest
+          environment-file: ${{ matrix.environment-file }}
+          python-version: "3.13"
+          auto-update-conda: false
+          conda-remove-defaults: true
+      - name: "Install Test Framework"
+        run: pip install pytest pytest-qt pytest-xdist
+      - name: "Install Windows-Mesa OpenGL DLL"
+        if: runner.os == 'Windows'
+        run: |
+          curl -L --output mesa.7z --url https://github.com/pal1000/mesa-dist-win/releases/download/25.2.6/mesa3d-25.2.6-release-msvc.7z
+          7z x mesa.7z -o*
+          powershell.exe mesa\systemwidedeploy.cmd 1
+        shell: pwsh
+      - name: "Install Linux VirtualDisplay"
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -y --allow-releaseinfo-change
+          sudo apt-get install -y --no-install-recommends \
+            libxkbcommon-x11-0 \
+            x11-utils \
+            libyaml-dev \
+            libegl1 \
+            libxcb-icccm4 \
+            libxcb-image0 \
+            libxcb-keysyms1 \
+            libxcb-randr0 \
+            libxcb-render-util0 \
+            libxcb-xinerama0 \
+            libopengl0 \
+            libxcb-cursor0
+          pip install pytest-xvfb
+      - name: "Debug Info"
+        run: |
+          echo python location: `which python`
+          echo python version: `python --version`
+          echo pytest location: `which pytest`
+          echo installed packages
+          conda list
+          pip list
+          echo pyqtgraph system info
+          python -c "import pyqtgraph as pg; pg.systemInfo()"
+        env:
+          QT_DEBUG_PLUGINS: 1
+      - name: "XVFB Display Info"
+        run: |
+          xvfb-run --server-args="-screen 0, 1920x1200x24 -ac +extension GLX +render -noreset" python -m pyqtgraph.util.glinfo
+          xvfb-run --server-args="-screen 0, 1920x1200x24 -ac +extension GLX +render -noreset" python -m pyqtgraph.util.get_resolution
+        if: runner.os == 'Linux'
+      - name: "Display Info"
+        run: |
+          python -m pyqtgraph.util.glinfo
+          python -m pyqtgraph.util.get_resolution
+        if: runner.os != 'Linux'
+      - name: Run Tests
+        run: |
+          mkdir "$SCREENSHOT_DIR"
+          pytest tests -v
+          pytest pyqtgraph/examples -v -n 2
+      - name: Upload Screenshots
+        if: failure()
+        uses: actions/upload-artifact@v5
+        with:
+          name: Screenshots (Conda - Qt-Bindings ${{ matrix.qt-lib }} - OS ${{ matrix.os }})
+          path: ${{ env.SCREENSHOT_DIR }}
+          if-no-files-found: ignore
+    env:
+      SCREENSHOT_DIR: screenshots
+
+  coverage:
+    name: combine & check coverage
+    if: always()
+    needs: tests-pip
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          # Use latest Python, so it understands all syntax.
+          python-version: "3.14"
+
+      - uses: actions/download-artifact@v6
+        with:
+          pattern: coverage-data-*
+          merge-multiple: true
+
+      - name: Combine coverage
+        run: |
+          python -m pip install --upgrade coverage
+
+          coverage combine
+          coverage html
+
+          # Report and write to summary.
+          coverage report --format=markdown >> $GITHUB_STEP_SUMMARY
+
+          # Report again and fail if under 100%.
+          # yeah... we're not going to do this just yet...
+          # coverage report --fail-under=100
+
+      - name: Upload HTML report
+        uses: actions/upload-artifact@v5
+        with:
+          name: html-report
+          path: htmlcov

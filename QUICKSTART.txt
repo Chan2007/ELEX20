@@ -1,0 +1,90 @@
+"""
+Guia rápido de instalação e uso
+"""
+
+# INSTALAÇÃO RÁPIDA
+
+## Passo 1: Instalar dependências
+pip install -r requirements.txt
+
+# Nota: rpy2 requer R instalado. Se não tiver R:
+pip install -r requirements.txt --ignore-installed rpy2
+
+## Passo 2 (Opcional): Instalar R para melhor qualidade de gráficos
+# Windows: https://cran.r-project.org/
+# Depois instale os pacotes R:
+# R
+# > install.packages(c("ggplot2", "tidyr", "dplyr", "GGally", "scales"))
+# > q()
+
+
+# USO RÁPIDO
+
+## Terminal 1: Iniciar simulador LSL
+python simulador_lsl_emg.py
+
+## Terminal 2: Executar aplicação
+python Grafico.py
+
+## Na interface:
+# Clique em "⬇️ RECARREGAR DE LSL" para capturar dados
+
+
+# TESTE DE INTEGRAÇÃO
+
+python teste_lsl_integracao.py
+
+
+# TROUBLESHOOTING
+
+## Se der erro "pylsl not found"
+pip install pylsl
+
+## Se R não funcionar
+# A aplicação usa automaticamente fallback em matplotlib
+# Gráficos serão gerados em Python
+
+## Se houver erro de "Nenhum stream LSL encontrado"
+1. Verifique se simulador_lsl_emg.py está rodando
+2. Verifique se não há firewall bloqueando localhost
+3. Tente aumentar o wait_time no resolve_streams (vide Grafico.py linha ~380)
+
+
+# ESTRUTURA DE PASTAS
+
+ELEX20/
+├── Grafico.py                    # Aplicação principal
+├── simulador_lsl_emg.py          # Simulador de streams LSL
+├── teste_lsl_integracao.py       # Script de teste
+├── requirements.txt              # Dependências Python
+├── README_ANALISE_LSL.md         # Documentação completa
+├── output/                       # Saída de gráficos
+│   ├── grafico_boxplot_facet_py.png
+│   ├── grafico_matriz_dispersao_py.png
+│   ├── grafico_radar_py.png
+│   ├── metricas_canais.csv
+│   └── grafico_python.html
+└── pyqtgraph/                    # Biblioteca pyqtgraph local (opcional)
+
+
+# FLUXO DE DADOS
+
+Simulador LSL
+    ↓ (EMG Stream + EMG_Processado Stream)
+Aplicação Grafico.py
+    ↓ (Botão "RECARREGAR DE LSL")
+Captura de dados (5 segundos)
+    ↓
+Cálculo de métricas (RMS, Freq. Mediana, ZCR, Waveform Length)
+    ↓
+Geração de gráficos (R ou matplotlib)
+    ↓
+Visualização na interface
+
+# NOTAS IMPORTANTES
+
+- Cada clique em "RECARREGAR DE LSL" captura 5 segundos de novo dados
+- Os dados são armazenados em output/metricas_canais.csv
+- A aplicação aguarda 3 segundos por streams LSL antes de timeout
+- O simulador envia dados continuamente até ser interrompido (Ctrl+C)
+- Recomenda-se deixar o simulador rodando enquanto testa a interface

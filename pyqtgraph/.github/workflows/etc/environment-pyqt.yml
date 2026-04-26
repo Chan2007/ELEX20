@@ -1,0 +1,9 @@
+name: test
+dependencies:
+  - pyqt
+  - numpy
+  - nomkl
+  - scipy
+  - pyopengl
+  - colorama
+  - pip

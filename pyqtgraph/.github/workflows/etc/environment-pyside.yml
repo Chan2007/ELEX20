@@ -1,0 +1,9 @@
+name: test
+dependencies:
+  - pyside6[version='!=6.9.1']
+  - numpy
+  - nomkl
+  - scipy
+  - pyopengl
+  - colorama
+  - pip
