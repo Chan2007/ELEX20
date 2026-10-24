@@ -9,6 +9,6 @@ pyserial==3.5
 matplotlib==3.8.4
 pandas==2.2.0
 scikit-learn==1.5.0
-pillow==12.3.0
+pillow==13.0.0
 bleak==3.0.2
 psutil==7.2.2
